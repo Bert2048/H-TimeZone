@@ -60,21 +60,31 @@ impl TzPickerState {
     ///
     /// The viewport carries a title bar with the OS close (X) button.
     /// Returns `(chosen_tz_name, should_close)`.
-    pub fn draw_window(&mut self, ctx: &egui::Context) -> (Option<String>, bool) {
+    pub fn draw_window(
+        &mut self,
+        ctx: &egui::Context,
+        icon: Option<egui::IconData>,
+    ) -> (Option<String>, bool) {
         let mut close = false;
         let mut chosen: Option<String> = None;
 
         let search_id = egui::Id::new("tz_picker_search");
         let title = self.title();
 
+        let mut vb = egui::ViewportBuilder::default()
+            .with_title(title)
+            .with_inner_size([300.0, 400.0])
+            .with_resizable(false)
+            .with_always_on_top()
+            .with_taskbar(false)
+            .with_transparent(true);
+        if let Some(icon) = icon {
+            vb = vb.with_icon(icon);
+        }
+
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("tz_picker"),
-            egui::ViewportBuilder::default()
-                .with_title(title)
-                .with_inner_size([300.0, 400.0])
-                .with_resizable(false)
-                .with_always_on_top()
-                .with_taskbar(false),
+            vb,
             |ctx, _class| {
                 // OS title-bar X button — let the OS close the window and
                 // signal the caller to clear picker state.

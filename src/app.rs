@@ -35,6 +35,8 @@ pub struct TimeZoneApp {
     /// Tray menu item IDs for event matching.
     quit_id: String,
     settings_id: String,
+    /// App icon applied to decorated viewports (settings, picker).
+    icon: Option<egui::IconData>,
 }
 
 impl TimeZoneApp {
@@ -46,6 +48,7 @@ impl TimeZoneApp {
             .iter()
             .map(|(k, &[x, y])| (k.clone(), egui::pos2(x, y)))
             .collect();
+        let icon = Self::load_icon();
         Self {
             clocks,
             show_settings: false,
@@ -59,7 +62,16 @@ impl TimeZoneApp {
             want_quit: false,
             quit_id,
             settings_id,
+            icon,
         }
+    }
+
+    fn load_icon() -> Option<egui::IconData> {
+        let bytes = include_bytes!("../res/htz.ico");
+        let img = image::load_from_memory(bytes).ok()?.into_rgba8();
+        let width = img.width();
+        let height = img.height();
+        Some(egui::IconData { rgba: img.into_raw(), width, height })
     }
 
     fn save_config(&mut self) {
@@ -241,6 +253,12 @@ impl eframe::App for TimeZoneApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
+        // eframe's clear_color() override zeros the root viewport's framebuffer.
+        // Child immediate viewports use `visuals.panel_fill` as their clear colour,
+        // so we set it to TRANSPARENT here.  Every panel that needs a visible fill
+        // supplies its own explicit Frame::fill(), so nothing breaks.
+        ctx.style_mut(|s| s.visuals.panel_fill = egui::Color32::TRANSPARENT);
+
         // Root window: invisible 1×1 host for child viewports
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(egui::Color32::TRANSPARENT))
@@ -371,9 +389,13 @@ impl eframe::App for TimeZoneApp {
                 .with_title("TimeZone — Settings")
                 .with_inner_size([340.0, 500.0])
                 .with_resizable(false)
-                .with_taskbar(false);
+                .with_taskbar(false)
+                .with_transparent(true);
             if pinned {
                 settings_vb = settings_vb.with_always_on_top();
+            }
+            if let Some(ref icon) = self.icon {
+                settings_vb = settings_vb.with_icon(icon.clone());
             }
 
             ctx.show_viewport_immediate(
@@ -406,8 +428,10 @@ impl eframe::App for TimeZoneApp {
 
                     // Picker window floats within the settings viewport.
                     // Collect result first to drop the picker borrow before mutating app state.
-                    let picker_result =
-                        self.picker.as_mut().map(|p| (p.target, p.draw_window(ctx)));
+                    let picker_result = self
+                        .picker
+                        .as_mut()
+                        .map(|p| (p.target, p.draw_window(ctx, self.icon.clone())));
 
                     if let Some((target, (chosen, close))) = picker_result {
                         if let Some(tz) = chosen {
