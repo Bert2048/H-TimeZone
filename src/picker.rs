@@ -19,6 +19,8 @@ pub struct TzPickerState {
     pub target: TzPickerTarget,
     query: String,
     filtered: Vec<String>,
+    /// False until the search field has been focused on first open.
+    focused: bool,
 }
 
 impl TzPickerState {
@@ -27,6 +29,15 @@ impl TzPickerState {
             target,
             query: String::new(),
             filtered: all_tz_names().iter().map(|s| s.to_string()).collect(),
+            focused: false,
+        }
+    }
+
+    fn title(&self) -> &'static str {
+        match self.target {
+            TzPickerTarget::Clock => "Add Clock",
+            TzPickerTarget::ConverterFrom => "From — Select Timezone",
+            TzPickerTarget::ConverterTo => "To — Select Timezone",
         }
     }
 
@@ -54,7 +65,9 @@ impl TzPickerState {
         let mut close = false;
         let mut chosen: Option<String> = None;
 
-        egui::Window::new("Select Timezone")
+        let search_id = egui::Id::new("tz_picker_search");
+
+        egui::Window::new(self.title())
             .collapsible(false)
             .resizable(true)
             .default_size([300.0, 340.0])
@@ -67,7 +80,11 @@ impl TzPickerState {
                             .font(FontId::monospace(11.0))
                             .color(colors::DIM),
                     );
-                    ui.text_edit_singleline(&mut self.query);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.query)
+                            .id(search_id)
+                            .desired_width(f32::INFINITY),
+                    );
                     if ui
                         .add(
                             egui::Button::new(
@@ -83,8 +100,20 @@ impl TzPickerState {
                     }
                 });
 
+                // Auto-focus the search field on first open.
+                if !self.focused {
+                    ui.memory_mut(|m| m.request_focus(search_id));
+                    self.focused = true;
+                }
+
                 if self.query != before {
                     self.update_filter();
+                }
+
+                // Enter key selects the top result.
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.filtered.is_empty() {
+                    chosen = Some(self.filtered[0].clone());
+                    close = true;
                 }
 
                 ui.separator();

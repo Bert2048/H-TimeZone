@@ -12,10 +12,17 @@ pub struct Config {
     /// Card background opacity 0.0–1.0 (default 0.70).
     #[serde(default = "default_opacity")]
     pub opacity: f32,
+    /// Whether card windows stay always-on-top (default true).
+    #[serde(default = "default_pinned")]
+    pub pinned: bool,
 }
 
 fn default_opacity() -> f32 {
     0.70
+}
+
+fn default_pinned() -> bool {
+    true
 }
 
 fn default_clocks() -> Vec<String> {
@@ -38,6 +45,7 @@ impl Default for Config {
             clocks: default_clocks(),
             positions: HashMap::new(),
             opacity: default_opacity(),
+            pinned: default_pinned(),
         }
     }
 }

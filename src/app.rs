@@ -26,6 +26,8 @@ pub struct TimeZoneApp {
     shown: HashSet<String>,
     /// Card background opacity 0.0–1.0.
     opacity: f32,
+    /// Whether card windows float always-on-top.
+    pinned: bool,
     /// True when state changed and config needs re-saving.
     config_dirty: bool,
     /// Quit requested from settings or tray — applied at end of frame.
@@ -52,6 +54,7 @@ impl TimeZoneApp {
             positions,
             shown: HashSet::new(),
             opacity: cfg.opacity,
+            pinned: cfg.pinned,
             config_dirty: false,
             want_quit: false,
             quit_id,
@@ -69,6 +72,7 @@ impl TimeZoneApp {
             clocks: self.clocks.iter().map(|c| c.tz_name.clone()).collect(),
             positions,
             opacity: self.opacity,
+            pinned: self.pinned,
         });
         self.config_dirty = false;
     }
@@ -94,6 +98,12 @@ impl TimeZoneApp {
     //  [ Quit ]
 
     fn draw_settings_ui(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+        self.draw_settings_inner(ui);
+        });
+    }
+
+    fn draw_settings_inner(&mut self, ui: &mut egui::Ui) {
         // ── CITIES ────────────────────────────────────────────────────────────
         ui.label(
             RichText::new("CITIES").font(FontId::monospace(9.0)).color(colors::GHOST),
@@ -174,6 +184,17 @@ impl TimeZoneApp {
                 self.config_dirty = true;
             }
         });
+
+        ui.add_space(4.0);
+        if ui
+            .add(egui::Checkbox::new(
+                &mut self.pinned,
+                RichText::new("Always on top").font(FontId::monospace(10.0)).color(colors::DIM),
+            ))
+            .changed()
+        {
+            self.config_dirty = true;
+        }
 
         ui.add_space(12.0);
 
@@ -275,14 +296,18 @@ impl eframe::App for TimeZoneApp {
                 None
             };
 
+            let pinned = self.pinned;
             let mut vb = egui::ViewportBuilder::default()
                 .with_title(city.as_str())
                 .with_decorations(false)
                 .with_transparent(true)
-                .with_always_on_top()
                 .with_inner_size([CARD_W, CARD_H])
                 .with_resizable(false)
                 .with_taskbar(false);
+
+            if pinned {
+                vb = vb.with_always_on_top();
+            }
 
             if let Some(pos) = apply_pos {
                 vb = vb.with_position(pos);
@@ -291,6 +316,11 @@ impl eframe::App for TimeZoneApp {
             let mut tracked_pos: Option<egui::Pos2> = None;
 
             ctx.show_viewport_immediate(vp_id, vb, |ctx, _class| {
+                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(if pinned {
+                    egui::WindowLevel::AlwaysOnTop
+                } else {
+                    egui::WindowLevel::Normal
+                }));
                 let (double_clicked, pos) =
                     clock::draw_card_content(ctx, &city, &time_str, &date_str, self.opacity);
                 if double_clicked {
@@ -328,15 +358,25 @@ impl eframe::App for TimeZoneApp {
         if self.show_settings {
             let mut close_settings = false;
 
+            let pinned = self.pinned;
+            let mut settings_vb = egui::ViewportBuilder::default()
+                .with_title("TimeZone — Settings")
+                .with_inner_size([340.0, 500.0])
+                .with_resizable(false)
+                .with_taskbar(false);
+            if pinned {
+                settings_vb = settings_vb.with_always_on_top();
+            }
+
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("settings"),
-                egui::ViewportBuilder::default()
-                    .with_title("TimeZone — Settings")
-                    .with_inner_size([340.0, 500.0])
-                    .with_resizable(false)
-                    .with_always_on_top()
-                    .with_taskbar(false),
+                settings_vb,
                 |ctx, _class| {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(if pinned {
+                        egui::WindowLevel::AlwaysOnTop
+                    } else {
+                        egui::WindowLevel::Normal
+                    }));
                     if ctx.input(|i| i.viewport().close_requested()) {
                         close_settings = true;
                     }
