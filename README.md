@@ -1,10 +1,13 @@
 # H-TimeZone
 
+<img src="res/ICON.png" width="20%">
+
 A minimal always-on-top world clock HUD for the desktop. Built in Rust + egui.
 
 ![screenshot](docs/screenshot01.jpeg)
 
-![screenshot](docs/screenshot02.jpg)
+<img src="docs/screenshot02.jpg" width="57%">
+
 ## What it does
 
 Displays multiple world clocks as small floating cards on your desktop — always visible, always on top, never in your way. Each card shows the city name, current time, and date at a glance. Cards can be freely positioned anywhere on screen and their positions are remembered across restarts.
