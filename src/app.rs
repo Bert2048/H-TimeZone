@@ -37,6 +37,8 @@ pub struct TimeZoneApp {
     settings_id: String,
     /// App icon applied to decorated viewports (settings, picker).
     icon: Option<egui::IconData>,
+    /// Frames remaining to call DWM transparency fix (Windows only).
+    dwm_pending: u8,
 }
 
 impl TimeZoneApp {
@@ -63,6 +65,7 @@ impl TimeZoneApp {
             quit_id,
             settings_id,
             icon,
+            dwm_pending: 1,
         }
     }
 
@@ -440,6 +443,9 @@ impl eframe::App for TimeZoneApp {
                                     self.positions.remove(&tz);
                                     self.clocks.push(ClockEntry::new(&tz));
                                     self.config_dirty = true;
+                                    // Re-apply DWM fix this frame and the next to cover
+                                    // the newly created card viewport.
+                                    self.dwm_pending = self.dwm_pending.max(2);
                                 }
                                 TzPickerTarget::ConverterFrom => {
                                     self.converter.from_tz = tz;
@@ -459,6 +465,63 @@ impl eframe::App for TimeZoneApp {
             if close_settings {
                 self.show_settings = false;
             }
+        }
+
+        // ── Windows DWM per-pixel alpha fix ───────────────────────────────────
+        // winit calls DwmEnableBlurBehindWindow with DWM_BB_BLURREGION + empty
+        // region at window creation, but the correct call for GPU-rendered
+        // transparent windows is DWM_BB_ENABLE only with a NULL region.
+        // We re-apply it here for all process windows after viewports are shown.
+        #[cfg(windows)]
+        if self.dwm_pending > 0 {
+            Self::apply_dwm_transparency();
+            self.dwm_pending -= 1;
+        }
+    }
+}
+
+// ── Windows DWM helper ────────────────────────────────────────────────────────
+
+#[cfg(windows)]
+impl TimeZoneApp {
+    /// Re-apply DwmEnableBlurBehindWindow with the correct DWM_BB_ENABLE flag
+    /// (no blur region) for all windows belonging to this process.
+    /// This ensures per-pixel alpha compositing works for undecorated viewports.
+    fn apply_dwm_transparency() {
+        use windows_sys::Win32::{
+            Foundation::BOOL,
+            Graphics::Dwm::{DwmEnableBlurBehindWindow, DWM_BB_ENABLE, DWM_BLURBEHIND},
+            System::Threading::GetCurrentProcessId,
+            UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId},
+        };
+
+        unsafe extern "system" fn enum_cb(hwnd: isize, lparam: isize) -> BOOL {
+            let target_pid = lparam as u32;
+            let mut wpid: u32 = 0;
+            // SAFETY: hwnd is a valid HWND supplied by the OS callback;
+            // wpid is a local stack variable valid for the duration of this call.
+            unsafe { GetWindowThreadProcessId(hwnd, &mut wpid) };
+            if wpid == target_pid {
+                let bb = DWM_BLURBEHIND {
+                    dwFlags: DWM_BB_ENABLE,
+                    fEnable: 1,   // TRUE
+                    hRgnBlur: 0,  // NULL — apply DWM compositing to entire window
+                    fTransitionOnMaximized: 0,
+                };
+                // SAFETY: hwnd is a valid HWND from the OS; bb is fully initialized
+                // on the stack and lives for the duration of this call.
+                // Ignore HRESULT: failure is non-fatal (e.g. DWM composition
+                // disabled in a VM); transparency simply won't apply to that window.
+                let _ = unsafe { DwmEnableBlurBehindWindow(hwnd, &bb) };
+            }
+            1 // TRUE — continue enumeration
+        }
+
+        // SAFETY: enum_cb is a valid WNDENUMPROC; pid is u32 cast to isize
+        // (zero-extended on 64-bit Windows; PIDs never exceed i32::MAX in practice).
+        unsafe {
+            let pid = GetCurrentProcessId();
+            EnumWindows(Some(enum_cb), pid as isize);
         }
     }
 }
