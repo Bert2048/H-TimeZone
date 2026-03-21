@@ -56,107 +56,127 @@ impl TzPickerState {
         }
     }
 
-    /// Draw the picker as a floating window within `ctx`.
+    /// Draw the picker as an independent OS window (immediate viewport).
     ///
+    /// The viewport carries a title bar with the OS close (X) button.
     /// Returns `(chosen_tz_name, should_close)`.
-    /// - `chosen_tz_name` is `Some` when the user selects a timezone.
-    /// - `should_close` is `true` on selection or when the user dismisses.
     pub fn draw_window(&mut self, ctx: &egui::Context) -> (Option<String>, bool) {
         let mut close = false;
         let mut chosen: Option<String> = None;
 
         let search_id = egui::Id::new("tz_picker_search");
+        let title = self.title();
 
-        egui::Window::new(self.title())
-            .collapsible(false)
-            .resizable(true)
-            .default_size([300.0, 340.0])
-            .show(ctx, |ui| {
-                let before = self.query.clone();
-
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("\u{1F50D}")
-                            .font(FontId::monospace(11.0))
-                            .color(colors::DIM),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.query)
-                            .id(search_id)
-                            .desired_width(f32::INFINITY),
-                    );
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new("\u{2715}")
-                                    .font(FontId::monospace(10.0))
-                                    .color(colors::GHOST),
-                            )
-                            .frame(false),
-                        )
-                        .clicked()
-                    {
-                        close = true;
-                    }
-                });
-
-                // Auto-focus the search field on first open.
-                if !self.focused {
-                    ui.memory_mut(|m| m.request_focus(search_id));
-                    self.focused = true;
-                }
-
-                if self.query != before {
-                    self.update_filter();
-                }
-
-                // Enter key selects the top result.
-                if ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.filtered.is_empty() {
-                    chosen = Some(self.filtered[0].clone());
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("tz_picker"),
+            egui::ViewportBuilder::default()
+                .with_title(title)
+                .with_inner_size([300.0, 400.0])
+                .with_resizable(false)
+                .with_always_on_top()
+                .with_taskbar(false),
+            |ctx, _class| {
+                // OS title-bar X button — let the OS close the window and
+                // signal the caller to clear picker state.
+                if ctx.input(|i| i.viewport().close_requested()) {
                     close = true;
                 }
 
-                ui.separator();
+                egui::CentralPanel::default()
+                    .frame(
+                        egui::Frame::new()
+                            .fill(colors::settings_bg())
+                            .inner_margin(egui::Margin {
+                                left: 12,
+                                right: 12,
+                                top: 10,
+                                bottom: 10,
+                            }),
+                    )
+                    .show(ctx, |ui| {
+                        // ── Search bar ────────────────────────────────────────
+                        let resp = ui.add(
+                            egui::TextEdit::singleline(&mut self.query)
+                                .id(search_id)
+                                .desired_width(f32::INFINITY)
+                                .hint_text("Search timezones…"),
+                        );
 
-                egui::ScrollArea::vertical().max_height(270.0).show(ui, |ui| {
-                    if self.filtered.is_empty() {
-                        ui.add_space(12.0);
-                        ui.vertical_centered(|ui| {
-                            ui.label(
-                                RichText::new(format!(
-                                    "No timezones match \"{}\"",
-                                    self.query
-                                ))
-                                .font(FontId::monospace(10.0))
-                                .color(colors::DIM),
-                            );
-                            ui.add_space(4.0);
-                            ui.label(
-                                RichText::new(
-                                    "Try a city like \"Edmonton\" or a region like \"America\"",
-                                )
-                                .font(FontId::monospace(9.0))
-                                .color(colors::GHOST),
-                            );
-                        });
-                    } else {
-                        for tz in &self.filtered.clone() {
-                            if ui
-                                .selectable_label(
-                                    false,
-                                    RichText::new(tz)
-                                        .font(FontId::monospace(11.0))
-                                        .color(colors::DIM),
-                                )
-                                .clicked()
-                            {
-                                chosen = Some(tz.clone());
-                                close = true;
-                            }
+                        // Auto-focus on first open.
+                        if !self.focused {
+                            resp.request_focus();
+                            self.focused = true;
                         }
-                    }
-                });
-            });
+
+                        let query_changed = resp.changed();
+                        if query_changed {
+                            self.update_filter();
+                        }
+
+                        ui.add_space(4.0);
+
+                        // ── Keyboard shortcuts ────────────────────────────────
+                        // Enter → select top result.
+                        if ui.input(|i| i.key_pressed(egui::Key::Enter))
+                            && !self.filtered.is_empty()
+                        {
+                            chosen = Some(self.filtered[0].clone());
+                            close = true;
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        // Escape → cancel.
+                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            close = true;
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+
+                        ui.separator();
+
+                        // ── Results list ──────────────────────────────────────
+                        egui::ScrollArea::vertical().max_height(310.0).show(ui, |ui| {
+                            if self.filtered.is_empty() {
+                                ui.add_space(12.0);
+                                ui.vertical_centered(|ui| {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "No timezones match \"{}\"",
+                                            self.query
+                                        ))
+                                        .font(FontId::monospace(10.0))
+                                        .color(colors::DIM),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(
+                                            "Try a city like \"Edmonton\" or \
+                                             a region like \"America\"",
+                                        )
+                                        .font(FontId::monospace(9.0))
+                                        .color(colors::GHOST),
+                                    );
+                                });
+                            } else {
+                                for tz in &self.filtered.clone() {
+                                    if ui
+                                        .selectable_label(
+                                            false,
+                                            RichText::new(tz)
+                                                .font(FontId::monospace(11.0))
+                                                .color(colors::DIM),
+                                        )
+                                        .clicked()
+                                    {
+                                        chosen = Some(tz.clone());
+                                        close = true;
+                                        ui.ctx()
+                                            .send_viewport_cmd(egui::ViewportCommand::Close);
+                                    }
+                                }
+                            }
+                        });
+                    });
+            },
+        );
 
         (chosen, close)
     }

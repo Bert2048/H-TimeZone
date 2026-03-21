@@ -116,11 +116,11 @@ impl TimeZoneApp {
                 if ui
                     .add(
                         egui::Button::new(
-                            RichText::new("\u{2715}")
+                            RichText::new("✕")
                                 .font(FontId::monospace(9.0))
-                                .color(colors::GHOST),
+                                .color(colors::ERROR),
                         )
-                        .frame(false),
+                        .frame(true),
                     )
                     .clicked()
                 {
@@ -230,6 +230,14 @@ impl TimeZoneApp {
 // ── eframe::App ───────────────────────────────────────────────────────────────
 
 impl eframe::App for TimeZoneApp {
+    /// Clear to fully transparent so per-pixel alpha blends against the desktop
+    /// via the DWM compositor on Windows.  Without this, the default opaque
+    /// clear color prevents window transparency even when `with_transparent(true)`
+    /// is set on the viewport.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
